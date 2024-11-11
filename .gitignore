@@ -1,0 +1,21 @@
+# Python
+venv/
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# Unity
+Library/
+Temp/
+Obj/
+Build/
+Logs/
+*.csproj
+*.unityproj
+*.sln
+*.user
+.vscode/
+
+# Blender (optional)
+*.blend1
+*.blend2
