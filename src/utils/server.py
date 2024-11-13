@@ -11,22 +11,14 @@ class DigitalArchitectServer:
         self.port = port
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.REP)
-        self.message_handler = MessageHandler()
+        
+        # Initialize core components
+        self.architect = DigitalArchitect()
+        self.conversation_handler = ConversationHandler(MessageHandler())
         
         # Setup logging
         self.logger = logging.getLogger(__name__)
         self._setup_logging()
-
-    def _setup_logging(self):
-        """Configure logging for the server"""
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler('digital_architect.log'),
-                logging.StreamHandler()
-            ]
-        )
 
     async def start(self):
         """Start the server and listen for requests"""
@@ -59,6 +51,50 @@ class DigitalArchitectServer:
         """Receive and parse message from Unity"""
         message = self.socket.recv_string()
         return json.loads(message)
+    
+    async def handle_message(self, message_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle incoming message from Unity"""
+        try:
+            # Extract message and context
+            message = message_data['message']
+            project_context = message_data.get('metadata', {}).get('project_context', {})
+            
+            # Process through conversation handler
+            conversation_response = await self.conversation_handler.process_request(
+                message, 
+                project_context
+            )
+            
+            if conversation_response.is_valid:
+                # Process through architect
+                architect_response = await self.architect.handle_request(
+                    message,
+                    project_context
+                )
+                
+                # Only return if we need user input or task is complete
+                if architect_response.get("needs_clarification"):
+                    return {
+                        "type": "clarification",
+                        "message": await self.conversation_handler.generate_clarification_request(
+                            architect_response
+                        )
+                    }
+                elif architect_response.get("is_complete"):
+                    return {
+                        "type": "completion",
+                        "message": await self.conversation_handler.generate_completion_message(
+                            architect_response
+                        )
+                    }
+                else:
+                    return {"type": "processing"}
+            
+            return {"type": "error", "message": "Invalid request"}
+            
+        except Exception as e:
+            self.logger.error(f"Error processing message: {str(e)}")
+            return {"type": "error", "message": str(e)}
 
     async def send_response(self, response: ArchitectRequest):
         """Send response back to Unity"""
