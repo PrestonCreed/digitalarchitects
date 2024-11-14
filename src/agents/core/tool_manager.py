@@ -8,7 +8,9 @@ class ArchitectToolManager:
     def __init__(self):
         self.registry = ToolRegistry()
         self.current_task_tools: Dict[str, List[Tool]] = {}
-        self.tool_cache: Dict[str, Any] = {}  # Cache tool results for efficiency
+        self.tool_cache: Dict[str, Any] = {}
+        self.ws_manager = None  # Will be set by DigitalArchitect
+        self.action_results = {}  # Track action results
         
     async def prepare_tools_for_task(self, task_type: str) -> Dict[str, List[Tool]]:
         """Prepare and validate tools needed for a specific task"""
@@ -36,32 +38,39 @@ class ArchitectToolManager:
             raise
 
     async def execute_tool_chain(self, task_type: str, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute a chain of tools for a task"""
+        """Enhanced tool chain execution with Unity action support"""
         results = {}
         tools = self.current_task_tools.get(task_type, [])
         
         for tool in tools:
             try:
-                # Check if we have cached results
-                if tool.name in self.tool_cache:
-                    results[tool.name] = self.tool_cache[tool.name]
-                    continue
-                
-                # Execute tool with context
-                result = await self._execute_tool_with_context(tool, context)
-                
-                # Cache result if successful
-                if result.get("success"):
-                    self.tool_cache[tool.name] = result
-                    results[tool.name] = result
+                if tool.requires_unity_action:
+                    # Execute tool through Unity
+                    action_result = await self._execute_unity_action(tool, context)
+                    results[tool.name] = action_result
                 else:
-                    raise Exception(f"Tool {tool.name} execution failed: {result.get('error')}")
-                
+                    # Execute tool locally
+                    result = await self._execute_tool_with_context(tool, context)
+                    if result.get("success"):
+                        self.tool_cache[tool.name] = result
+                        results[tool.name] = result
+                    
             except Exception as e:
                 self.logger.error(f"Error executing tool {tool.name}: {e}")
                 raise
-
+                
         return results
+    
+    async def _execute_unity_action(self, tool: Tool, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute action through Unity WebSocket"""
+        action_data = {
+            "action": tool.unity_action_type,
+            "parameters": self._prepare_action_parameters(tool, context),
+            "tool_id": tool.name
+        }
+        
+        response = await self.ws_manager.send_command(action_data)
+        return self._process_unity_response(response)
 
     async def _validate_tools(self, tools: List[Tool]) -> bool:
         """Validate all tools are available and requirements are met"""

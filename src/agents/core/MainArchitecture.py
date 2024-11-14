@@ -11,17 +11,28 @@ import json
 class DigitalArchitect:
     """Main Digital Architect Agent"""
     
-    def __init__(self):
+    def __init__(self, websocket_uri: str, api_key: str):
         self.llm = MessageHandler(system_prompt=BASE_ROLE)
         self.logger = logging.getLogger(__name__)
         self.tool_manager = ArchitectToolManager()
+        self.ws_manager = WebSocketClientManager(websocket_uri, api_key)
+        self.tool_manager.ws_manager = self.ws_manager  # Connect components
         self.process_memory = []
         self.current_context = None
 
+    async def start(self):
+        """Initialize and start all components"""
+        await self.ws_manager.start()
+        # Initialize other components as needed    
+
     async def handle_request(self, message: str, project_context: Dict[str, Any]) -> Dict[str, Any]:
-        """Main entry point for handling user requests"""
+        """Enhanced request handling with Unity integration"""
         try:
-            # Initialize process context
+            if not self.ws_manager.is_connected.is_set():
+                return {
+                    "status": "error",
+                    "message": "Unity connection not available"
+                }
             self.current_context = ProcessContext(
                 user_request=message,
                 project_context=project_context,
