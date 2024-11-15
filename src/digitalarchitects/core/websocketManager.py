@@ -20,6 +20,47 @@ class WebSocketClientManager:
         self.is_connected = asyncio.Event()
         self.autonomous_mode = autonomous_mode  # Now properly defined
         self.action_queue = asyncio.Queue()
+
+    @ErrorHandler.handle_websocket_errors
+    async def connect(self):
+        try:
+            self.connection = await websockets.connect(
+                self.config.uri,
+                extra_headers={"X-API-KEY": self.config.api_key}
+            )
+            self.logger.info(f"Connected to Unity WebSocket server at {self.config.uri}")
+            self.is_connected.set()
+        except Exception as e:
+            self.logger.error(f"Failed to connect to Unity WebSocket server: {e}")
+            self.is_connected.clear()
+            raise
+
+    @ErrorHandler.handle_websocket_errors
+    async def send_command(self, command: dict) -> dict:
+        if not MessageValidator.validate_command(command):
+            self.logger.error(f"Invalid command format: {command}")
+            return {"status": "error", "message": "Invalid command format"}
+            
+        try:
+            if not self.connection:
+                await self.connect()
+            
+            message = json.dumps(command)
+            await self.connection.send(message)
+            self.logger.debug(f"Sent command: {message}")
+            
+            response = await self.connection.recv()
+            self.logger.debug(f"Received response: {response}")
+            
+            parsed_response = json.loads(response)
+            if not MessageValidator.validate_response(parsed_response):
+                raise ValueError("Invalid response format from Unity")
+                
+            return parsed_response
+            
+        except Exception as e:
+            self.logger.error(f"Error sending command: {e}")
+            return {"status": "failure", "error": str(e)}    
     
     async def connect(self):
         try:

@@ -9,6 +9,9 @@ from .websocketManager import WebSocketClientManager
 from ..tools.base_tool import Tool
 from ..prompts.system_prompts import BASE_ROLE, ANALYSIS_PROMPT, REFLECTION_PROMPT, COMPLETION_PROMPT
 from ..chat.ConversationHandler import ConversationHandler
+from ..utils.logging_config import LoggerMixin
+from ..middleware.error_handler import ErrorHandler
+from ..config.config_manager import ConfigManager
 import json
 
 @dataclass
@@ -37,6 +40,28 @@ class DigitalArchitect:
         self.tool_manager.ws_manager = self.ws_manager  # Connect components
         self.process_memory = []
         self.current_context = None
+
+    @ErrorHandler.handle_environment_errors
+    async def start(self):
+        """Initialize and start all components"""
+        await self.ws_manager.connect()
+        # Additional startup logic...
+
+    @ErrorHandler.handle_llm_errors
+    async def handle_request(self, message: str, project_context: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            if not self.ws_manager.is_connected.is_set():
+                return {
+                    "status": "error",
+                    "message": "Unity connection not available"
+                }
+            
+            # Existing handle_request implementation...
+            pass
+            
+        except Exception as e:
+            self.logger.error(f"Error handling request: {e}")
+            return {"error": str(e)}    
 
     async def start(self):
         """Initialize and start all components"""

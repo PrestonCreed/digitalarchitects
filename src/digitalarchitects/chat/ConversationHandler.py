@@ -2,6 +2,9 @@ from typing import Dict, Any, List, Optional
 import logging
 from ..utils.LLMSystem import MessageHandler, LLMResponse
 from dataclasses import dataclass
+from ..utils.logging_config import LoggerMixin
+from ..middleware.error_handler import ErrorHandler
+from ..config.config_manager import LLMConfig
 
 @dataclass
 class ConversationState:
@@ -21,6 +24,29 @@ class ConversationHandler:
         
         # Load system prompts
         self.system_prompts = self._load_system_prompts()
+
+    @ErrorHandler.handle_llm_errors
+    async def process_request(self, message: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            self.state.last_request = message
+            self.state.project_context = context
+            self.state.conversation_history.append({
+                "role": "user",
+                "content": message
+            })
+
+            prompt = self._generate_contextual_prompt(message, context)
+            response = await self.llm.process_message(
+                prompt,
+                temperature=self.llm_config.temperature,
+                max_tokens=self.llm_config.max_tokens
+            )
+            
+            # Rest of the implementation...
+            
+        except Exception as e:
+            self.logger.error(f"Error processing conversation: {e}")
+            raise    
 
     async def process_request(self, message: str, context: Dict[str, Any]) -> LLMResponse:
         """Process a user request with full context"""
