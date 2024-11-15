@@ -3,6 +3,9 @@ import websockets
 import json
 import logging
 from typing import Dict, Any, Optional  # Added missing imports
+from ..utils.logging_config import LoggerMixin
+from ..middleware.error_handler import ErrorHandler, MessageValidator
+from ..config.ConfigManager import WebSocketConfig
 
 class WebSocketClientManager:
     """Manages the WebSocket connection to Unity."""
