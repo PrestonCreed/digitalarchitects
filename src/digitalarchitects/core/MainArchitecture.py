@@ -3,16 +3,34 @@ from typing import Dict, List, Optional, Any
 from enum import Enum
 import logging
 import asyncio
-from registry.tool_registry import ToolRegistry
-from tools.base_tool import Tool
-from prompts.system_prompts import BASE_ROLE, ANALYSIS_PROMPT, CLARIFICATION_PROMPT, COMPLETION_PROMPT
+from ..tools.tool_registry import ToolRegistry
+from .tool_manager import ArchitectToolManager
+from .websocketManager import WebSocketClientManager
+from ..tools.base_tool import Tool
+from ..prompts.system_prompts import BASE_ROLE, ANALYSIS_PROMPT, REFLECTION_PROMPT, COMPLETION_PROMPT
+from ..chat.ConversationHandler import ConversationHandler
 import json
+
+@dataclass
+class ProcessContext:
+    user_request: str
+    project_context: Dict[str, Any]
+    task_history: List[Dict[str, Any]]
+    inferred_details: Dict[str, Any]
+    confidence_metrics: Dict[str, Any]
+
+@dataclass
+class TaskResult:
+    success: bool
+    message: str
+    artifacts: Dict[str, Any]
+    error: Optional[str] = None
 
 class DigitalArchitect:
     """Main Digital Architect Agent"""
     
     def __init__(self, websocket_uri: str, api_key: str):
-        self.llm = MessageHandler(system_prompt=BASE_ROLE)
+        self.llm = ConversationHandler(system_prompt=BASE_ROLE)
         self.logger = logging.getLogger(__name__)
         self.tool_manager = ArchitectToolManager()
         self.ws_manager = WebSocketClientManager(websocket_uri, api_key)

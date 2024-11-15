@@ -1,8 +1,9 @@
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Any
 from enum import Enum
 import asyncio
 import logging
+from ..core.websocketManager import WebSocketClientManager
+from typing import Dict, List, Optional, Any
 
 class EnvironmentActionType(Enum):
     IMPORT_MODEL = "import_model"

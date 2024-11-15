@@ -1,6 +1,6 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 import logging
-from LLMSystem import MessageHandler, LLMResponse
+from ..utils.LLMSystem import MessageHandler, LLMResponse
 from dataclasses import dataclass
 
 @dataclass

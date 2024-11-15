@@ -5,6 +5,9 @@ import logging
 from typing import Dict, Any
 from dataclasses import asdict
 from LLMSystem import MessageHandler, ArchitectRequest
+from ..core.MainArchitecture import DigitalArchitect
+from ..chat.ConversationHandler import ConversationHandler
+from .LLMSystem import MessageHandler, ArchitectRequest
 
 class DigitalArchitectServer:
     def __init__(self, port: int = 5555):

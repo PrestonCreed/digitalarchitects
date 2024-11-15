@@ -1,3 +1,7 @@
+from typing import Dict, Optional, Any
+import logging
+from ..core.websocketManager import WebSocketClientManager
+
 class PublicEnvironmentManager:
     def __init__(self):
         self.connection_config = None

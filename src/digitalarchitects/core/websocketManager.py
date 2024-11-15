@@ -2,20 +2,21 @@ import asyncio
 import websockets
 import json
 import logging
+from typing import Dict, Any, Optional  # Added missing imports
 
 class WebSocketClientManager:
     """Manages the WebSocket connection to Unity."""
     
-    def __init__(self, uri: str, api_key: str):
+    def __init__(self, uri: str, api_key: str, autonomous_mode: bool = False):  # Added default value
         self.uri = uri
         self.api_key = api_key
         self.connection = None
         self.logger = logging.getLogger(__name__)
-        self.message_queue = asyncio.Queue()  # Add message queue
-        self.reconnect_interval = 5  # seconds
+        self.message_queue = asyncio.Queue()
+        self.reconnect_interval = 5
         self.is_connected = asyncio.Event()
-        self.autonomous_mode = autonomous_mode
-        self.action_queue = asyncio.Queue()  # For autonomous actions
+        self.autonomous_mode = autonomous_mode  # Now properly defined
+        self.action_queue = asyncio.Queue()
     
     async def connect(self):
         try:

@@ -1,6 +1,6 @@
 from typing import Dict, List, Any, Optional
-from tools.tool_registry import ToolRegistry
-from tools.base_tool import Tool
+from ..tools.tool_registry import ToolRegistry
+from ..tools.base_tool import Tool
 
 class ArchitectToolManager:
     """Manages tool access and execution for Digital Architects"""
@@ -71,6 +71,31 @@ class ArchitectToolManager:
         
         response = await self.ws_manager.send_command(action_data)
         return self._process_unity_response(response)
+    
+    def _prepare_action_parameters(self, tool: Tool, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Prepare parameters for Unity action based on context and tool requirements."""
+        parameters = {}
+        # Map context data to parameters required by the Unity action
+        for param in tool.requirements:
+            if param in context['inferred_details']:
+                parameters[param] = context['inferred_details'][param]
+            else:
+                raise ValueError(f"Parameter '{param}' is required for tool '{tool.name}'")
+
+        return parameters
+
+    def _process_unity_response(self, response: Dict[str, Any]) -> Dict[str, Any]:
+        """Process response from Unity and return a standardized result."""
+        if response.get('status') == 'success':
+            return {
+                'success': True,
+                'data': response.get('data')
+            }
+        else:
+            return {
+                'success': False,
+                'error': response.get('error')
+            }
 
     async def _validate_tools(self, tools: List[Tool]) -> bool:
         """Validate all tools are available and requirements are met"""

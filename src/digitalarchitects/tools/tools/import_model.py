@@ -1,9 +1,10 @@
 # as an example of how a tool can use websockets to communicate with the unity environment, this is the tool for importing models
 
-from tools.base_tool import Tool
+
 from typing import Any, Dict
 import asyncio
-from .websocket_client_manager import WebSocketClientManager
+from ..base_tool import Tool
+from ...core.websocketManager import WebSocketClientManager
 import os
 
 # Initialize WebSocketClientManager with Unity server URI and API key

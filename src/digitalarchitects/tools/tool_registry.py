@@ -4,33 +4,50 @@ from typing import List, Dict, Any
 from .base_tool import Tool
 import logging
 
+from .tools.place_model_tool import place_model_tool
+from .tools.import_model import import_model_tool  # If you have this tool
+
 class ToolRegistry:
     def __init__(self):
         self.tools: Dict[str, Tool] = {}
         self.logger = logging.getLogger(__name__)
         self.load_tools()
+        self.register_default_tools()  # New method
+
+    def register_default_tools(self):
+        """Register built-in tools explicitly"""
+        default_tools = [
+            place_model_tool,
+            # Add other default tools here
+        ]
+        for tool in default_tools:
+            self.register_tool(tool)    
 
     def load_tools(self):
         """
-        Dynamically load all tools from the tools directory.
-        Assumes each tool is defined in its own module and has tool instances at the module level.
+        Dynamically load tools from the tools directory.
+        Now separated from default tools.
         """
-        tools_directory = os.path.join(os.path.dirname(__file__), '..', 'tools')
-        for root, dirs, files in os.walk(tools_directory):
+        tools_directory = os.path.join(os.path.dirname(__file__), 'tools')
+        if not os.path.exists(tools_directory):
+            self.logger.warning(f"Tools directory not found: {tools_directory}")
+            return
+
+        for root, _, files in os.walk(tools_directory):
             for file in files:
                 if file.endswith(".py") and not file.startswith("__"):
-                    # Construct module path relative to the registry directory
-                    relative_path = os.path.relpath(os.path.join(root, file), os.path.dirname(__file__))
-                    module_path = relative_path.replace(os.path.sep, '.')[:-3]  # Remove .py extension
                     try:
+                        relative_path = os.path.relpath(os.path.join(root, file), os.path.dirname(__file__))
+                        module_path = f"digitalarchitects.tools.{relative_path[:-3].replace(os.path.sep, '.')}"
                         module = importlib.import_module(module_path)
-                        for attribute in dir(module):
-                            obj = getattr(module, attribute)
-                            if isinstance(obj, Tool):
-                                self.register_tool(obj)
-                                self.logger.info(f"Registered tool: {obj.name}")
+                        
+                        # Look for Tool instances
+                        for attr_name in dir(module):
+                            attr = getattr(module, attr_name)
+                            if isinstance(attr, Tool):
+                                self.register_tool(attr)
                     except Exception as e:
-                        self.logger.error(f"Failed to load tool from {module_path}: {e}")
+                        self.logger.error(f"Failed to load tool from {file}: {e}")                    
 
     def register_tool(self, tool: Tool):
         if tool.name in self.tools:
