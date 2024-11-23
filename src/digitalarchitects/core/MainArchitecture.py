@@ -1,6 +1,7 @@
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Set
 from enum import Enum
+import datetime
 import logging
 import asyncio
 from ..tools.tool_registry import ToolRegistry
@@ -11,7 +12,9 @@ from ..prompts.system_prompts import BASE_ROLE, ANALYSIS_PROMPT, REFLECTION_PROM
 from ..chat.ConversationHandler import ConversationHandler
 from ..utils.logging_config import LoggerMixin
 from ..middleware.error_handler import ErrorHandler
-from ..config.config_manager import ConfigManager
+from ..config.ConfigManager import ConfigManager
+from ..memory.MemorySystem import MemoryManager, CollectiveMemory, ConversationMemory, ActionMemory, KnowledgeMemory
+
 import json
 
 @dataclass
@@ -39,6 +42,9 @@ class DigitalArchitect:
         self.ws_manager = WebSocketClientManager(websocket_uri, api_key)
         self.tool_manager.ws_manager = self.ws_manager  # Connect components
         self.process_memory = []
+        self.current_context = None
+        self.memory_manager = MemoryManager(architect_id)
+        self.collective_memory = CollectiveMemory(project_id)
         self.current_context = None
 
     @ErrorHandler.handle_environment_errors
@@ -69,40 +75,36 @@ class DigitalArchitect:
         # Initialize other components as needed    
 
     async def handle_request(self, message: str, project_context: Dict[str, Any]) -> Dict[str, Any]:
-        """Enhanced request handling with Unity integration"""
         try:
-            if not self.ws_manager.is_connected.is_set():
-                return {
-                    "status": "error",
-                    "message": "Unity connection not available"
-                }
-            self.current_context = ProcessContext(
-                user_request=message,
-                project_context=project_context,
-                task_history=[],
-                inferred_details={},
-                confidence_metrics={}
+            # Store conversation in memory
+            conversation_memory = ConversationMemory(
+                timestamp=datetime.datetime.now().timestamp(),
+                content={"message": message, "context": project_context},
+                importance=0.8,  # Adjust based on content
+                tags={"conversation", "user_input"},
+                role="user",
+                message=message,
+                context=project_context
             )
+            await self.memory_manager.add_memory(conversation_memory)
 
-            # Analyze request and determine approach
-            understanding = await self._analyze_request()
-            
-            # Check if we need user clarification
-            if understanding.get("needs_clarification") and self._should_ask_user(understanding):
-                clarification_question = understanding.get("clarification_question", "Could you please provide more details?")
-                return self._format_clarification_request(clarification_question)
+            # Rest of handle_request implementation...
+            result = await super().handle_request(message, project_context)
 
-            # Execute process/task
-            result = await self._execute_request(understanding)
-            
-            # Only return if complete or if we need user input
-            if result.get("needs_user_input"):
-                return self._format_user_request(result)
-            elif result.get("is_complete"):
-                return self._format_completion_response(result)
-            else:
-                # Continue processing silently
-                return {"status": "processing"}
+            # Store response in memory
+            if result.get("status") != "error":
+                response_memory = ConversationMemory(
+                    timestamp=datetime.datetime.now().timestamp(),
+                    content={"response": result},
+                    importance=0.8,
+                    tags={"conversation", "agent_response"},
+                    role="assistant",
+                    message=result.get("message", ""),
+                    context=project_context
+                )
+                await self.memory_manager.add_memory(response_memory)
+
+            return result
 
         except Exception as e:
             self.logger.error(f"Error handling request: {str(e)}")
@@ -195,36 +197,45 @@ class DigitalArchitect:
             return {"error": str(e)}
 
     async def _execute_task(self, task: Dict[str, Any]) -> TaskResult:
-        """Execute a task using appropriate tools"""
+        """Execute a task with memory tracking"""
         try:
-            # Prepare tools for task
-            tool_preparation = await self.tool_manager.prepare_tools_for_task(task["type"])
+            result = await super()._execute_task(task)
             
-            if not tool_preparation["ready"]:
-                return TaskResult(
-                    success=False,
-                    message="Failed to prepare tools",
-                    artifacts={},
-                    error="Tool preparation failed"
+            # Store action in memory
+            action_memory = ActionMemory(
+                timestamp=datetime.datetime.now().timestamp(),
+                content=task,
+                importance=0.9,  # Actions are typically important to remember
+                tags={"action", task["type"]},
+                action_type=task["type"],
+                parameters=task.get("parameters", {}),
+                result=result.artifacts,
+                success=result.success
+            )
+            await self.memory_manager.add_memory(action_memory)
+            
+            # If task generated new knowledge, store it
+            if result.success and "learned_info" in result.artifacts:
+                knowledge_memory = KnowledgeMemory(
+                    timestamp=datetime.datetime.now().timestamp(),
+                    content=result.artifacts["learned_info"],
+                    importance=0.85,
+                    tags={"knowledge", task["type"]},
+                    category=task["type"],
+                    related_entities=result.artifacts.get("related_entities", []),
+                    confidence=0.9
                 )
-
-            # Execute tool chain
-            tool_results = await self.tool_manager.execute_tool_chain(
-                task["type"],
-                self.current_context.__dict__
-            )
+                await self.memory_manager.add_memory(knowledge_memory)
+                
+                # If knowledge is relevant to project, add to collective memory
+                if result.artifacts.get("project_relevant", False):
+                    await self.collective_memory.add_collective_knowledge(
+                        category=task["type"],
+                        content=result.artifacts["learned_info"],
+                        contributor_id=self.architect_id
+                    )
             
-            # Process results
-            processed_results = self._process_tool_results(tool_results)
-            
-            return TaskResult(
-                success=True,
-                message="Task completed successfully",
-                artifacts={
-                    "tool_results": tool_results,
-                    "task_output": processed_results
-                }
-            )
+            return result
             
         except Exception as e:
             self.logger.error(f"Error executing task: {e}")
@@ -252,6 +263,23 @@ class DigitalArchitect:
             "message": clarification_question,
             "context": self.current_context.project_context
         }
+    
+    async def query_relevant_memories(self, query: str, tags: Optional[Set[str]] = None) -> List[Any]:
+        """Query memories relevant to current context"""
+        return await self.memory_manager.query_memories(
+            tags=tags,
+            importance_threshold=0.5,
+            limit=10
+        )
+
+    async def update_role(self, role: str, responsibilities: List[str]):
+        """Update architect's role in the project"""
+        await self.collective_memory.update_architect_role(
+            self.architect_id,
+            role,
+            responsibilities,
+            self.current_context.task_history if self.current_context else []
+        )
     
     async def _generate_completion_message(self, results: List[TaskResult]) -> str:
         """Generate a completion message based on task results"""

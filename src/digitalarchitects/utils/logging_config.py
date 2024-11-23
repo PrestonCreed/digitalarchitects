@@ -2,14 +2,21 @@ import logging
 import sys
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
-import json
-from datetime import datetime
 from typing import Optional
 
 class LoggingManager:
+    _instance = None
+    
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self, config_manager=None):
-        self.config = config_manager
-        self.setup_logging()
+        if not hasattr(self, '_initialized'):
+            self.config = config_manager
+            self.setup_logging()
+            self._initialized = True
 
     def setup_logging(self):
         """Setup logging configuration"""
@@ -30,7 +37,7 @@ class LoggingManager:
             '%(levelname)s: %(message)s'
         )
 
-        # Setup file handler
+        # Setup handlers
         file_handler = RotatingFileHandler(
             log_file,
             maxBytes=10485760,  # 10MB
@@ -38,21 +45,30 @@ class LoggingManager:
         )
         file_handler.setFormatter(file_formatter)
 
-        # Setup console handler
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setFormatter(console_formatter)
 
-        # Setup root logger
+        # Configure root logger
         root_logger = logging.getLogger()
         root_logger.setLevel(getattr(logging, log_level))
+        
+        # Remove any existing handlers
+        root_logger.handlers = []
+        
+        # Add our handlers
         root_logger.addHandler(file_handler)
         root_logger.addHandler(console_handler)
+
+    @staticmethod
+    def get_logger(name: str) -> logging.Logger:
+        """Get a logger with the specified name"""
+        return logging.getLogger(name)
 
 class LoggerMixin:
     """Mixin to add logging capabilities to classes"""
     
     @property
-    def logger(self):
+    def logger(self) -> logging.Logger:
         if not hasattr(self, '_logger'):
-            self._logger = logging.getLogger(self.__class__.__name__)
+            self._logger = LoggingManager.get_logger(self.__class__.__name__)
         return self._logger
