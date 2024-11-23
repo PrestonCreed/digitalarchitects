@@ -41,23 +41,23 @@ class InstanceManager(LoggerMixin):
     def __init__(self, config: ConfigManager, project_id: str):
         # Initialize logging first
         LoggingManager(config)  # Ensure logging is set up
-        
+
         self.config = config
         self.project_id = project_id
         self.instances: Dict[str, ArchitectInstance] = {}
         self.collective_memory = CollectiveMemory(project_id)
-        
+
         # State Management
         self.state_manager = AgentStateManager(project_id)
         self.unity_sync = UnityStateSync(self.config.get_websocket_manager())
-        
+
         # Project Context
         self.project_context = ProjectContext(
             project_id=project_id,
             name=f"Project_{project_id}",
             description="Digital Architects Project"
         )
-        
+
         self.logger.info(f"Initialized InstanceManager for project {project_id}")
 
     async def create_instance(
@@ -71,7 +71,7 @@ class InstanceManager(LoggerMixin):
         """Create a new Digital Architect instance"""
         try:
             instance_id = str(uuid.uuid4())
-            
+
             # Create the architect
             architect = DigitalArchitect(
                 websocket_uri=self.config.get_websocket_config().uri,
@@ -108,9 +108,10 @@ class InstanceManager(LoggerMixin):
                 websocket_config=self.config.get_websocket_config(),
                 goals=asdict(goals),
                 memory_state={},
+                conversation_history=[],
                 collaborator_ids=set()
             )
-            
+
             await self.state_manager.register_agent(agent_state)
 
             # Add to project context
@@ -119,10 +120,10 @@ class InstanceManager(LoggerMixin):
 
             # Store instance
             self.instances[instance_id] = instance
-            
+
             # Initialize architect
             await architect.start()
-            
+
             self.logger.info(f"Created new architect instance: {name} ({instance_id})")
             return instance_id
 
@@ -133,7 +134,7 @@ class InstanceManager(LoggerMixin):
     async def _update_collaborations(self, instance_id: str, focus: Dict[str, Any]):
         """Update collaboration relationships based on focus areas"""
         instance = self.instances[instance_id]
-        
+
         # Find potential collaborators based on focus overlap
         for other_id, other in self.instances.items():
             if other_id != instance_id:
@@ -141,12 +142,12 @@ class InstanceManager(LoggerMixin):
                     focus,
                     other.collaboration_focus
                 )
-                
+
                 if collaboration_strength > 0.5:  # Threshold for collaboration
                     # Update relationships
                     self.project_context.architect_relationships[instance_id].add(other_id)
                     self.project_context.architect_relationships[other_id].add(instance_id)
-                    
+
                     # Update states
                     await self._notify_collaboration(instance_id, other_id)
 
@@ -154,21 +155,21 @@ class InstanceManager(LoggerMixin):
         """Calculate how strongly two architects should collaborate"""
         if not focus1 or not focus2:
             return 0.0
-            
+
         overlap_score = 0.0
-        
+
         # Check area overlap
         if focus1.get("area") == focus2.get("area"):
             overlap_score += 0.4
-            
+
         # Check task type overlap
         if focus1.get("task_type") == focus2.get("task_type"):
             overlap_score += 0.3
-            
+
         # Check location overlap
         if focus1.get("location") == focus2.get("location"):
             overlap_score += 0.3
-            
+
         return overlap_score
 
     async def _notify_collaboration(self, architect1_id: str, architect2_id: str):
@@ -177,11 +178,11 @@ class InstanceManager(LoggerMixin):
         await self.state_manager.update_agent_state(architect1_id, {
             "collaborator_ids": self.project_context.architect_relationships[architect1_id]
         })
-        
+
         await self.state_manager.update_agent_state(architect2_id, {
             "collaborator_ids": self.project_context.architect_relationships[architect2_id]
         })
-        
+
         # Add to collective memory
         await self.collective_memory.add_collective_knowledge(
             category="collaborations",
@@ -190,39 +191,39 @@ class InstanceManager(LoggerMixin):
                 "established": datetime.datetime.now().timestamp()
             },
             contributor_id="system"
-        )                
+        )
 
     async def handle_request(self, instance_id: str, message: str, context: Dict[str, Any]) -> Dict[str, Any]:
         """Handle a request with state management"""
         instance = self.instances.get(instance_id)
         if not instance:
             raise ValueError(f"Instance {instance_id} not found")
-            
+
         # Get current state
         state = self.state_manager.get_agent_state(instance_id)
         if state.status != "active":
             raise ValueError(f"Instance {instance_id} is not active")
 
-        # Add project context
+        # Add project context and collaborators to the context
         context["project"] = self.project_context.__dict__
         context["collaborators"] = list(self.project_context.architect_relationships[instance_id])
 
-        # Update state
+        # Update state with current task
         now = datetime.datetime.now().timestamp()
         await self.state_manager.update_agent_state(instance_id, {
             "last_active": now,
             "current_task": {"type": "process_request", "message": message}
         })
-        
+
         # Process request
         response = await instance.architect.handle_request(message, context)
-        
+
         # Update state with response
         await self.state_manager.update_agent_state(instance_id, {
             "last_response": response,
             "current_task": None
         })
-        
+
         return response
 
     async def pause_instance(self, instance_id: str):
@@ -230,12 +231,16 @@ class InstanceManager(LoggerMixin):
         instance = self.instances.get(instance_id)
         if instance:
             instance.status = "paused"
+            await self.state_manager.update_agent_state(instance_id, {
+                "status": "paused"
+            })
             await self.collective_memory.update_architect_role(
                 instance_id,
                 "paused",
                 instance.goals.sub_objectives if instance.goals else [],
                 []
             )
+            self.logger.info(f"Paused architect instance: {instance_id}")
 
     async def resume_instance(self, instance_id: str):
         """Resume a paused architect"""
@@ -243,24 +248,27 @@ class InstanceManager(LoggerMixin):
         if instance:
             instance.status = "active"
             instance.last_active = datetime.datetime.now().timestamp()
+            await self.state_manager.update_agent_state(instance_id, {
+                "status": "active",
+                "last_active": instance.last_active
+            })
             await self.collective_memory.update_architect_role(
                 instance_id,
                 "active",
                 instance.goals.sub_objectives if instance.goals else [],
                 []
             )
+            self.logger.info(f"Resumed architect instance: {instance_id}")
 
     async def terminate_instance(self, instance_id: str):
         """Permanently terminate an architect instance"""
         instance = self.instances.get(instance_id)
         if instance:
-            # Remove from groups
-            for group_id in instance.group_ids:
-                if group_id in self.groups:
-                    self.groups[group_id].architect_ids.remove(instance_id)
-
             # Update status and collective memory
             instance.status = "terminated"
+            await self.state_manager.update_agent_state(instance_id, {
+                "status": "terminated"
+            })
             await self.collective_memory.update_architect_role(
                 instance_id,
                 "terminated",
@@ -271,6 +279,10 @@ class InstanceManager(LoggerMixin):
             # Close connections
             await instance.architect.ws_manager.disconnect()
 
+            # Remove from instances
+            del self.instances[instance_id]
+
+            self.logger.info(f"Terminated architect instance: {instance_id}")
 
     async def update_instance_goals(
         self,
@@ -309,3 +321,10 @@ class InstanceManager(LoggerMixin):
             instance.goals.sub_objectives,
             [{"primary_objective": instance.goals.primary_objective}]
         )
+
+        # Update agent state
+        await self.state_manager.update_agent_state(instance_id, {
+            "goals": asdict(instance.goals)
+        })
+
+        self.logger.info(f"Updated goals for architect instance: {instance_id}")

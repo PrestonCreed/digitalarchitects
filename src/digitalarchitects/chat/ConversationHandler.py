@@ -4,7 +4,7 @@ from ..utils.LLMSystem import MessageHandler, LLMResponse
 from dataclasses import dataclass
 from ..utils.logging_config import LoggerMixin
 from ..middleware.error_handler import ErrorHandler
-from ..config.config_manager import LLMConfig
+from ..config.ConfigManager import LLMConfig
 
 @dataclass
 class ConversationState:
